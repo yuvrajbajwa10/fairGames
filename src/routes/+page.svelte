@@ -182,7 +182,14 @@
 		courtSize.set(1);
 		teamSizeValue = 2;
 		courtSizeValue = 1;
+		textarea.select();
+		textarea.setSelectionRange(0, 99999);
+		navigator.clipboard.writeText(textarea.value);
 		textarea.value = '';
+
+		alert(
+			'Copied the last players list to clipboard. You can paste it back here if you want to start a new game.'
+		);
 	}
 
 	onMount(() => {
@@ -195,15 +202,17 @@
 </script>
 
 <div class="flex justify-center flex-col [&>input]:border [&>textarea]:border space-y-1 *:p-2">
-	<label for="teamSize">Team Size</label>
-	<input type="number" placeholder="team size" bind:value={teamSizeValue} />
-	<label for="courtSize">Amount of Court</label>
-	<input type="number" placeholder="court size" bind:value={courtSizeValue} />
-	<label for="players">
-		Players
-		<span class="text-sm font-light">- one player per line</span>
-	</label>
-	<textarea bind:this={textarea} on:input={autoResize} class="w-full"></textarea>
+	{#if $matches.length < 1}
+		<label for="teamSize">Team Size</label>
+		<input type="number" placeholder="team size" bind:value={teamSizeValue} />
+		<label for="courtSize">Amount of Court</label>
+		<input type="number" placeholder="court size" bind:value={courtSizeValue} />
+		<label for="players">
+			Players
+			<span class="text-sm font-light">- one player per line</span>
+		</label>
+		<textarea bind:this={textarea} on:input={autoResize} class="w-full"></textarea>
+	{/if}
 	<button class="bg-blue-500 text-blue-50" on:click={() => calculate()}>Generate</button>
 	<button class="bg-red-500 text-red-50" on:click={() => resetGame()}>Reset Game</button>
 	<div>
