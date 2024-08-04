@@ -3,7 +3,7 @@
 	import { get, writable, type Writable } from 'svelte/store';
 
 	var teamSizeValue: number = 2;
-	var courtSizeValue: number = 2;
+	var courtSizeValue: number = 1;
 	let textarea: HTMLTextAreaElement;
 
 	function autoResize() {
@@ -13,7 +13,6 @@
 
 	type team = {
 		players: string[];
-		consecutiveWins: number;
 	};
 
 	type match = {
@@ -31,7 +30,7 @@
 	let players: string[] = [];
 	let matches: Writable<match[]> = writable([]);
 	let currentRound: number = 1;
-	let playersPlayTime: player[] = [];
+	let playersPlayTime: Writable<player[]> = writable([]);
 	// cache the value of teamSizeValue from the form
 	const teamPlayerSize: Writable<number> = writable(teamSizeValue);
 	const courtSize: Writable<number> = writable(courtSizeValue);
@@ -41,136 +40,95 @@
 		players = textarea.value.split('\n').filter((player) => player.trim() !== '');
 		players.sort(() => Math.random() - 0.5);
 		// Initialize play time for each player
-		playersPlayTime = players.map((player) => ({ name: player, playTime: 0 }));
+		$playersPlayTime = players.map((player) => ({ name: player, playTime: 1 }));
 
 		matches.set([]);
 		currentRound = 1;
 		generateNextMatches();
 	};
-	const bubbleSort = (arr: any[], compare: (a: any, b: any) => number): any[] => {
-		let len = arr.length;
-		for (let i = 0; i < len - 1; i++) {
-			for (let j = 0; j < len - i - 1; j++) {
-				if (compare(arr[j], arr[j + 1]) > 0) {
-					swap(arr, j, j + 1);
+	const generateNextMatches = () => {
+		playersPlayTime.update((players) => {
+			let sortedPlayers = [...players].sort((a, b) => {
+				if (a.playTime === b.playTime) {
+					return Math.random() - 0.5;
+				} else {
+					return a.playTime - b.playTime;
 				}
-			}
-		}
-		return arr;
-	};
-	const swap = (arr: any[], i: number, j: number) => {
-		[arr[i], arr[j]] = [arr[j], arr[i]];
-	};
-	const slidinWindowSort = (arr: any[], compare: (a: any, b: any) => number): any[] => {
-		let len = arr.length;
-		let windowSize = 2;
-		for (let i = 0; i < len - 1; i += windowSize) {
-			let end = Math.min(i + windowSize, len);
-			let sorted = bubbleSort(arr.slice(i, end), compare);
-			for (let j = i; j < end; j++) {
-				arr[j] = sorted[j - i];
-			}
-		}
-		return arr;
-	};
+			});
 
-	const generateNextMatches = (winnerTeams?: team[]) => {
-		let sortedPlayers = [...playersPlayTime].sort((a, b) => a.playTime - b.playTime);
-		let courtsInUse = new Set(
-			get(matches)
-				.filter((m) => m.round === currentRound)
-				.map((m) => m.court)
-		);
-		console.log(sortedPlayers);
+			let courtsInUse = new Set();
+			currentRound = 1;
 
-		// Sort winner teams by consecutive wins (descending)
-		winnerTeams = slidinWindowSort(winnerTeams || [], (a: team, b: team) => {
-			if (a.consecutiveWins === b.consecutiveWins) {
-				return 0;
-			}
-			if (a.consecutiveWins > b.consecutiveWins) {
-				return -1;
-			}
-			return 1;
-		});
+			// Keep track of existing teams
+			let existingTeams: { [key: string]: string[] } = {};
 
-		while (sortedPlayers.length >= $teamPlayerSize * 2 && courtsInUse.size < $courtSize) {
-			const team1Players: string[] = [];
-			const team2Players: string[] = [];
-			let selectedPlayers: string[] = [];
-			let team1ConsecutiveWins = 0;
-			let team2ConsecutiveWins = 0;
+			while (sortedPlayers.length >= get(teamPlayerSize) * 2 && courtsInUse.size < get(courtSize)) {
+				let team1Players: string[] = [];
+				let team2Players: string[] = [];
 
-			function addPlayerToTeam(team: string[], playerName: string) {
-				if (selectedPlayers.includes(playerName)) {
-					return;
-				}
-				team.push(playerName);
-				selectedPlayers.push(playerName);
-				updatePlayerPlayTime(playerName);
-				sortedPlayers = sortedPlayers.filter((p) => p.name !== playerName);
-			}
-
-			function updatePlayerPlayTime(playerName: string) {
-				const index = playersPlayTime.findIndex((p) => p.name === playerName);
-				playersPlayTime[index].playTime++;
-			}
-
-			// Handle winner teams
-			if (winnerTeams && winnerTeams.length > 0) {
-				const winnerTeam = winnerTeams.shift();
-				if (winnerTeam && winnerTeam.consecutiveWins < 2) {
-					winnerTeam.players.forEach((playerName) => {
-						if (sortedPlayers.some((p) => p.name === playerName)) {
-							addPlayerToTeam(team1Players, playerName);
+				// Try to use existing teams first
+				for (let teamKey in existingTeams) {
+					if (
+						existingTeams[teamKey].every((player) => sortedPlayers.some((p) => p.name === player))
+					) {
+						if (team1Players.length === 0) {
+							team1Players = existingTeams[teamKey];
+						} else if (team2Players.length === 0) {
+							team2Players = existingTeams[teamKey];
 						}
-					});
-					team1ConsecutiveWins = winnerTeam.consecutiveWins;
-				}
-			}
-
-			// Fill remaining spots
-			for (let player of sortedPlayers) {
-				if (team1Players.length < $teamPlayerSize) {
-					addPlayerToTeam(team1Players, player.name);
-				} else if (team2Players.length < $teamPlayerSize) {
-					addPlayerToTeam(team2Players, player.name);
+						if (team1Players.length > 0 && team2Players.length > 0) break;
+					}
 				}
 
-				if (team1Players.length === $teamPlayerSize && team2Players.length === $teamPlayerSize) {
-					break;
+				// Fill in remaining slots with players who have played least
+				while (
+					team1Players.length < get(teamPlayerSize) ||
+					team2Players.length < get(teamPlayerSize)
+				) {
+					const player = sortedPlayers.shift();
+					if (player) {
+						if (team1Players.length < get(teamPlayerSize)) {
+							team1Players.push(player.name);
+						} else {
+							team2Players.push(player.name);
+						}
+						// Update player's playtime
+						const index = players.findIndex((p) => p.name === player.name);
+						players[index].playTime++;
+					}
 				}
-			}
 
-			// If we don't have enough players for a full match, break the loop
+				// Update existing teams
+				existingTeams[team1Players.sort().join(',')] = team1Players;
+				existingTeams[team2Players.sort().join(',')] = team2Players;
 
-			if (team1Players.length < $teamPlayerSize || team2Players.length < $teamPlayerSize) {
-				break;
-			}
-
-			// Find an available court
-			let court = 1;
-			while (courtsInUse.has(court)) {
-				court++;
-			}
-			// Create and add the new match
-			matches.update((currentMatches) => [
-				...currentMatches,
-				{
-					team1: {
-						players: team1Players,
-						consecutiveWins: team1ConsecutiveWins
-					},
-					team2: {
-						players: team2Players,
-						consecutiveWins: team2ConsecutiveWins
-					},
-					court: court,
-					round: currentRound,
-					winner: null
+				let court = 1;
+				while (courtsInUse.has(court)) {
+					court++;
 				}
-			]);
-		}
+
+				matches.update((currentMatches) => [
+					...currentMatches,
+					{
+						team1: { players: team1Players },
+						team2: { players: team2Players },
+						court: court,
+						round: currentRound,
+						winner: null
+					}
+				]);
+
+				courtsInUse.add(court);
+				currentRound++;
+
+				// Remove used players from sortedPlayers
+				sortedPlayers = sortedPlayers.filter(
+					(p) => !team1Players.includes(p.name) && !team2Players.includes(p.name)
+				);
+			}
+
+			return players;
+		});
 	};
 	const togglePrevMatchs: Writable<boolean> = writable(false);
 
@@ -182,21 +140,13 @@
 		// Generate next match if all current round matches are completed
 		if (get(matches).filter((m) => m.round === currentRound && !m.winner).length === 0) {
 			currentRound++;
-			var winners = get(matches)
-				.filter((m) => m.round === currentRound - 1)
-				.filter((m) => m.winner)
-				.map((m) => (m.winner === 'team1' ? m.team1 : m.team2));
-
-			winners.forEach((winner) => {
-				winner.consecutiveWins++;
-			});
-			generateNextMatches(winners);
+			generateNextMatches();
 		}
 		matches.update((value) => [...value]);
 	};
 
 	onMount(() => {
-		textarea.value = 'a\nb\nc\nd\ne';
+		textarea.value = 'yash\nyuvi\npaul\nivor\nkishan';
 		autoResize();
 	});
 </script>
@@ -215,7 +165,7 @@
 	<button class="bg-blue-500 text-blue-50" on:click={() => calculate()}>Generate</button>
 	<div>
 		<div class="flex justify-end">
-			{#if get(matches).length > 0}
+			{#if $matches.length > 0}
 				<button
 					class={`${$togglePrevMatchs ? 'bg-blue-500' : 'bg-red-500'} text-blue-50 p-2 rounded-lg`}
 					on:click={() => {
