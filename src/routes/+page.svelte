@@ -31,21 +31,53 @@
 	let matches: Writable<match[]> = writable([]);
 	let currentRound: number = 1;
 	let playersPlayTime: Writable<player[]> = writable([]);
-	// cache the value of teamSizeValue from the form
 	const teamPlayerSize: Writable<number> = writable(teamSizeValue);
 	const courtSize: Writable<number> = writable(courtSizeValue);
+
+	function saveToLocalStorage() {
+		localStorage.setItem('players', JSON.stringify(get(playersPlayTime)));
+		localStorage.setItem('matches', JSON.stringify(get(matches)));
+		localStorage.setItem('currentRound', currentRound.toString());
+		localStorage.setItem('teamSize', get(teamPlayerSize).toString());
+		localStorage.setItem('courtSize', get(courtSize).toString());
+		localStorage.setItem('playersList', textarea.value);
+	}
+
+	function loadFromLocalStorage() {
+		const savedPlayers = localStorage.getItem('players');
+		const savedMatches = localStorage.getItem('matches');
+		const savedCurrentRound = localStorage.getItem('currentRound');
+		const savedTeamSize = localStorage.getItem('teamSize');
+		const savedCourtSize = localStorage.getItem('courtSize');
+		const savedPlayersList = localStorage.getItem('playersList');
+
+		if (savedPlayers) playersPlayTime.set(JSON.parse(savedPlayers));
+		if (savedMatches) matches.set(JSON.parse(savedMatches));
+		if (savedCurrentRound) currentRound = parseInt(savedCurrentRound);
+		if (savedTeamSize) {
+			teamPlayerSize.set(parseInt(savedTeamSize));
+			teamSizeValue = parseInt(savedTeamSize);
+		}
+		if (savedCourtSize) {
+			courtSize.set(parseInt(savedCourtSize));
+			courtSizeValue = parseInt(savedCourtSize);
+		}
+		if (savedPlayersList) textarea.value = savedPlayersList;
+	}
+
 	const calculate = () => {
 		teamPlayerSize.set(teamSizeValue);
 		courtSize.set(courtSizeValue);
 		players = textarea.value.split('\n').filter((player) => player.trim() !== '');
 		players.sort(() => Math.random() - 0.5);
-		// Initialize play time for each player
 		$playersPlayTime = players.map((player) => ({ name: player, playTime: 1 }));
 
 		matches.set([]);
 		currentRound = 1;
 		generateNextMatches();
+		saveToLocalStorage();
 	};
+
 	const generateNextMatches = () => {
 		playersPlayTime.update((players) => {
 			let sortedPlayers = [...players].sort((a, b) => {
@@ -59,14 +91,12 @@
 			let courtsInUse = new Set();
 			currentRound = 1;
 
-			// Keep track of existing teams
 			let existingTeams: { [key: string]: string[] } = {};
 
 			while (sortedPlayers.length >= get(teamPlayerSize) * 2 && courtsInUse.size < get(courtSize)) {
 				let team1Players: string[] = [];
 				let team2Players: string[] = [];
 
-				// Try to use existing teams first
 				for (let teamKey in existingTeams) {
 					if (
 						existingTeams[teamKey].every((player) => sortedPlayers.some((p) => p.name === player))
@@ -80,7 +110,6 @@
 					}
 				}
 
-				// Fill in remaining slots with players who have played least
 				while (
 					team1Players.length < get(teamPlayerSize) ||
 					team2Players.length < get(teamPlayerSize)
@@ -92,13 +121,11 @@
 						} else {
 							team2Players.push(player.name);
 						}
-						// Update player's playtime
 						const index = players.findIndex((p) => p.name === player.name);
 						players[index].playTime++;
 					}
 				}
 
-				// Update existing teams
 				existingTeams[team1Players.sort().join(',')] = team1Players;
 				existingTeams[team2Players.sort().join(',')] = team2Players;
 
@@ -121,7 +148,6 @@
 				courtsInUse.add(court);
 				currentRound++;
 
-				// Remove used players from sortedPlayers
 				sortedPlayers = sortedPlayers.filter(
 					(p) => !team1Players.includes(p.name) && !team2Players.includes(p.name)
 				);
@@ -129,30 +155,46 @@
 
 			return players;
 		});
+		saveToLocalStorage();
 	};
+
 	const togglePrevMatchs: Writable<boolean> = writable(false);
 
 	const updateMatch = (matchIndex: number, winner: 'team1' | 'team2') => {
 		const match = get(matches)[matchIndex];
-		// Mark the match as completed
 		match.winner = winner;
 
-		// Generate next match if all current round matches are completed
 		if (get(matches).filter((m) => m.round === currentRound && !m.winner).length === 0) {
 			currentRound++;
 			generateNextMatches();
 		}
 		matches.update((value) => [...value]);
+		saveToLocalStorage();
 	};
 
+	function resetGame() {
+		localStorage.clear();
+		players = [];
+		matches.set([]);
+		currentRound = 1;
+		playersPlayTime.set([]);
+		teamPlayerSize.set(2);
+		courtSize.set(1);
+		teamSizeValue = 2;
+		courtSizeValue = 1;
+		textarea.value = '';
+	}
+
 	onMount(() => {
-		textarea.value = 'yash\nyuvi\npaul\nivor\nkishan';
+		loadFromLocalStorage();
+		if (!textarea.value) {
+			textarea.value = 'yash\nyuvi\npaul\nivor\nkishan';
+		}
 		autoResize();
 	});
 </script>
 
 <div class="flex justify-center flex-col [&>input]:border [&>textarea]:border space-y-1 *:p-2">
-	<!-- label -->
 	<label for="teamSize">Team Size</label>
 	<input type="number" placeholder="team size" bind:value={teamSizeValue} />
 	<label for="courtSize">Amount of Court</label>
@@ -163,6 +205,7 @@
 	</label>
 	<textarea bind:this={textarea} on:input={autoResize} class="w-full"></textarea>
 	<button class="bg-blue-500 text-blue-50" on:click={() => calculate()}>Generate</button>
+	<button class="bg-red-500 text-red-50" on:click={() => resetGame()}>Reset Game</button>
 	<div>
 		<div class="flex justify-end">
 			{#if $matches.length > 0}
